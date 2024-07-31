@@ -49,6 +49,7 @@ import cv2
 import dlib
 import math
 import csv
+import pickle
 
 np.random.seed(int(time.time()))
 
@@ -644,7 +645,6 @@ def test_video(video_path, shape_predictor_file, model):
     model = load_model(model)
 
     frames = []
-    # if video_path is a directory full of frames, read all the frames in from that directory
     if os.path.isdir(video_path):
         frame_names = sorted(os.listdir(video_path))
         for frame_name in frame_names:
@@ -659,17 +659,19 @@ def test_video(video_path, shape_predictor_file, model):
                 break
             img = np.array(Image.fromarray(img).resize((320, 256)))
             frames.append(img)
+        cap.release()
 
     print("Fetched " + str(len(frames)) + " frames from the video.")
     state = "Processing"
 
     font = cv2.FONT_HERSHEY_SIMPLEX
 
-    frame_num = 0
     input_sequence = []
-    while True:
-        frame = frames[frame_num]
-        img = frames[frame_num].copy()
+    predictions = []
+    processed_frames = []
+
+    for frame_num, frame in enumerate(frames):
+        img = frame.copy()
 
         cv2.putText(
             img, str(frame_num), (2, 10), font, 0.3, (255, 255, 255), 1, cv2.LINE_AA
@@ -678,21 +680,15 @@ def test_video(video_path, shape_predictor_file, model):
         (dets, facial_points_vector) = get_facial_landmark_vectors_from_frame(frame)
 
         if not dets or not facial_points_vector:
-            frame_num += 1
-            # loop back to the beginning of the frame set
-            if frame_num == len(frames):
-                frame_num = 0
+            processed_frames.append(img)
+            predictions.append(0)
             continue
 
         # draw a box showing the detected face
         for i, d in enumerate(dets):
-            # print("Detection {}: Left: {} Top: {} Right: {} Bottom: {}".format(
-            # 	i, d.left(), d.top(), d.right(), d.bottom()))
-
             cv2.rectangle(
                 img, (d.left(), d.top()), (d.right(), d.bottom()), (0, 255, 0), 2
             )
-            # draw the state label below the face
             cv2.rectangle(
                 img,
                 (d.left(), d.bottom()),
@@ -711,15 +707,9 @@ def test_video(video_path, shape_predictor_file, model):
                 cv2.LINE_AA,
             )
 
-        cv2.imshow("Video", img)
-        if cv2.waitKey(1) & 0xFF == ord("q"):
-            break
-
-        # add the facial points vector to the current input sequence vector for the RNN
         input_sequence.append(facial_points_vector)
 
         if len(input_sequence) >= FRAME_SEQ_LEN:
-            # get the most recent N sequences where N=FRAME_SEQ_LEN
             seq = input_sequence[-1 * FRAME_SEQ_LEN :]
             f = []
             for coords in seq:
@@ -743,13 +733,11 @@ def test_video(video_path, shape_predictor_file, model):
 
             X_data = np.array([arr])
 
-            # y_pred is already categorized
             y_pred = model.predict_on_batch(X_data)
 
-            # print('y_pred=' + str(y_pred) + ' shape=' + str(y_pred.shape))
-
-            # convert y_pred from categorized continuous to single label
             y_pred_max = y_pred[0].argmax()
+            predictions.append(y_pred_max)
+
             print("y_pred=" + str(y_pred) + " y_pred_max=" + str(y_pred_max))
 
             for k in CLASS_HASH:
@@ -757,9 +745,7 @@ def test_video(video_path, shape_predictor_file, model):
                     state = k
                     break
 
-            # redraw the label
             for i, d in enumerate(dets):
-                # draw the state label below the face
                 cv2.rectangle(
                     img,
                     (d.left(), d.bottom()),
@@ -778,14 +764,30 @@ def test_video(video_path, shape_predictor_file, model):
                     cv2.LINE_AA,
                 )
 
-            cv2.imshow("Video", img)
-            if cv2.waitKey(1) & 0xFF == ord("q"):
-                break
+        else:
+            predictions.append(0)
 
-        frame_num += 1
-        # loop back to the beginning of the frame set
-        if frame_num == len(frames):
-            frame_num = 0
+        processed_frames.append(img)
+
+    # Save predictions to a pickle file
+    video_name = os.path.splitext(os.path.basename(video_path))[0]
+    output_folder = os.path.join(os.path.dirname(video_path), video_name)
+    os.makedirs(output_folder, exist_ok=True)
+
+    pickle_path = os.path.join(output_folder, f"{video_name}_predictions.pckl")
+    with open(pickle_path, "wb") as f:
+        pickle.dump(predictions, f)
+
+    print(f"Predictions saved to {pickle_path}")
+
+    # Save processed video
+    output_video_path = os.path.join(output_folder, f"{video_name}_processed.avi")
+    fourcc = cv2.VideoWriter_fourcc(*"XVID")
+    out = cv2.VideoWriter(output_video_path, fourcc, 30, (320, 256))
+    for frame in processed_frames:
+        out.write(frame)
+    out.release()
+    print(f"Processed video saved to {output_video_path}")
 
 
 def get_facial_landmark_vectors_from_frame(frame):

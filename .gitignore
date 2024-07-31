@@ -1,4 +1,4 @@
-# Created by https://github.com/TaoRuijie/TalkNet-ASD/blob/main/requirement.txt
+# Created by https://github.com/TaoRuijie/TalkNet-ASD/blob/main/requirement.txt and modified by me to fit my needs
 
 # Other files
 *.model
@@ -11,6 +11,7 @@ data/
 tests/
 exps/
 demo/*
+videos/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -116,3 +117,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# Files from Macbook
+.DS_Store
